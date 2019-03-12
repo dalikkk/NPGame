@@ -39,6 +39,7 @@ class ParticipantsStrategy(StrategyTemplate):
                     techniques[t] = card.techniques[t]
         
         #print(techniques)
+        
         conditions = {}
         conditions_count = 0
         for card in cards:
@@ -48,30 +49,20 @@ class ParticipantsStrategy(StrategyTemplate):
                 else:
                     conditions[c] = card.conditions[c]
                 conditions_count += 1
-        for c in conditions:
-            if c in techniques:
-                if conditions[c] <= techniques[c]:
-                    pass
-                else:
-                    #print("return -1")
-                    return -1
-            else:
-                #print("return -1")
+        my_cards = list(cards)
+        for card in cards:
+            my_cards.remove(card)
+            if not card_condition_fulfilled(card, my_cards):
                 return -1
+            my_cards.append(card)
 
         # count power solution
         power = 0
         for t in problem.techniques:
             if t in techniques:
                 power += techniques[t] * problem.techniques[t]
-        if problem.best_solution is not None:
-            if power <= problem.best_solution:
-                #print("return -1")
-                return -1
-        else:
-            if power < problem.difficulty:
-                #print("return -1")
-                return -1
+        if not are_cards_enough_to_solve(problem, cards):
+            return -1
         # count number of effects
         effects = 0
         for t in problem.techniques:
