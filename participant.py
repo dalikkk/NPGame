@@ -38,8 +38,6 @@ class ParticipantsStrategy(StrategyTemplate):
                 else:
                     techniques[t] = card.techniques[t]
         
-        #print(techniques)
-        
         conditions = {}
         conditions_count = 0
         for card in cards:
@@ -69,11 +67,9 @@ class ParticipantsStrategy(StrategyTemplate):
             if t in techniques:
                 effects += techniques[t]
         effectivity = problem.difficulty / effects + 0.1 * conditions_count
-        #print("return", effectivity)
         return effectivity
 
     def ideal_play(self, game, play=False):
-        #print("ideal play")
         results = []
         for problem in game.get_active_problems():
             # generate all cards subsets
@@ -93,9 +89,7 @@ class ParticipantsStrategy(StrategyTemplate):
                 print("res: ", res)
                 """
                 results.append((problem, cards, res))
-        #print("all ideals")
         if len(results) == 0:
-            #print("return none")
             return None
         # get ideal combination
         ideal = results[0]
@@ -103,15 +97,12 @@ class ParticipantsStrategy(StrategyTemplate):
             if ideal[2] < item[2]:
                 ideal = item
         if ideal[2] == -1:
-            #print("return none")
             return None
         if play:
-            #print("play:", ideal[0], ideal[1])
             if self.get_phase().value == PlayerPhase.DISCARDING.value:
                 print("error")
                 game.set_debug_level(3)
             game.solve_problem(ideal[0], ideal[1])
-        #print("returning not none from ideal play:", ideal)
         return ideal
 
     def min_ideal_val_for_work(self, cards, cards_in_queue_count):
