@@ -6,6 +6,14 @@ from random import shuffle, randint
 from loadedCards import Card, Problem, load_problems, load_techniques
 from time import sleep
 import random
+from copy import deepcopy
+
+try:
+    import nphra_gui as gui
+    visualize, observe_id = True, 1
+except Exception as _:
+    pass
+
 
 class GamePhase(Enum):
     INIT = 1
@@ -48,7 +56,6 @@ class Game:
         shuffle(self.__problems)
         #self.__problems = random.sample(self.__problems, len(self.__problems))
 
-
     def set_debug_level(self, debug_level = 0):
         self._debug_level = debug_level # 0 means print nothing, 1 is print errors, 2 is print also warnings, 3 is print also information
 
@@ -60,7 +67,7 @@ class Game:
         new_player = player_type
         if new_player is None:
             new_player = Player()
-        new_player._name = name
+        new_player.set_name(name)
         new_player._id = self.__player_count
         self.__players[new_player.get_id()] = new_player
         self.__player_count += 1
@@ -69,12 +76,12 @@ class Game:
     def get_current_player(self):
         return self.__players[self.__current_player_id]
 
-    def _log_action(self, action_type, additional_info=None):
+    def _log_action(self, action_type, extra_info=None):
         player_id = self.get_current_player().get_id()
-        self.__action_history.append((player_id, action_type, additional_info))
+        self.__action_history.append((player_id, action_type, extra_info))
         msg_to_log = "Succesfull action - Player_id: " + str(player_id) + "; Action type: " + str(action_type)
-        if additional_info is not None:
-            msg_to_log += "; with aditional info: " + str(additional_info)
+        if extra_info is not None:
+            msg_to_log += "; with aditional info: " + str(extra_info)
         self.log_msg(3, msg_to_log)
 
     def get_player_count(self):
@@ -106,7 +113,11 @@ class Game:
         return self.__action_history
     
     def get_players(self):
-        return self.__players[:]
+        return self.__players
+#        return frozenset(self.__players.items())
+#        print(list(self.__players))
+#        return list(self.__players.items())
+#        return self.__players
 
     def get_all_techniques(self):
         return list(load_techniques())
@@ -119,24 +130,38 @@ class Game:
         if card is not None:
             self.__players[player_id]._cards.append(card) # todo: check if its working
 
+    def append_stage_data(self, action_string): # addition to enable visualization
+        try:
+            if visualize:
+                self.stage_data_for_gui.append([deepcopy(self.get_players()[observe_id]._get_my_cards()), self.get_players()[abs(observe_id-1)].get_cards_count(), deepcopy(self.get_problems()), self.get_remaining_cards_count(), deepcopy(self.get_current_scores()), action_string])
+        except Exception as _:
+            self.log_msg(4, "[~] Vizualization method append_stage_data failed.")
+            pass
+
     def start_game(self):
+        self.stage_data_for_gui = []
         for _ in range(4):
             for x in self.__players:
                 self.__add_card_to_player(x)
         self.__game_mode = GamePhase.RUNNING
         while self.__game_mode.value != GamePhase.ENDED.value:
             self._game_round()
+        try:
+            if visualize:
+                gui.initialize(self.stage_data_for_gui)
+        except Exception as _:
+            pass
         self.log_msg(3, "[ ] Game successfully finished\n")
 
-    def _solve_problem(self, player_id, problem, cards, additional_info=None):
+    def _solve_problem(self, player_id, problem, cards, additional_info=None, game=None, reduce_from=None, copied_card=None):
         cards = cards[:]
         if not problem.opened:
             self.log_msg(1, "[x] Problem you are trying to solve is not opened")
             return None
-        if not are_cards_enough_to_solve(problem, cards, additional_info):
+        if not are_cards_enough_to_solve(problem, cards, additional_info, game, reduce_from, copied_card):
             self.log_msg(1, "[x] This cards are not enough to solve the problem")
             return None
-        power_of_solution = calculate_power_of_solution(problem, cards, (self, player_id, additional_info)) # this additional info is currently only used for card Redukce
+        power_of_solution = calculate_power_of_solution(problem, cards, additional_info, game, reduce_from, copied_card)
 
         current_player = self.get_current_player()
         try:
@@ -178,8 +203,12 @@ class Game:
 
         if self.__game_mode.value == GamePhase.RUNNING.value:
             for player_id in self.get_player_order():
+#                print(player_id, end="")
+#                print(self.get_player_order())
                 self.__current_player_id = player_id
                 #print("\n\tAnother player starts (deck size: ", len(self.__deck), ")")
+                if self.__game_mode == GamePhase.RESULTING:
+                    break
                 if not len(self.__deck):
                     self.__game_mode = GamePhase.RESULTING
                     break
@@ -195,11 +224,11 @@ class Game:
                     current_player.game_tick(self)
                     self._total_up_the_game()
                     ticks_count += 1
-            self.__player_order.rotate(1)
-
+ 
         if self.__game_mode.value == GamePhase.RESULTING.value:
             self._total_up_the_game()
             self.__game_mode = GamePhase.ENDED
+#        self.__player_order.rotate(1)
 
     def _total_up_the_game(self):
         for current_player_id in self.__players:
@@ -207,6 +236,12 @@ class Game:
             for y in self.__problems:
                 current_player_score += y.solved_by.get(current_player_id, 0) * y.difficulty
             self.__current_scores[current_player_id] = current_player_score
+    
+    def surrender_game(self):
+        # Calling this method will result in imediate termination of the game.
+        # DO NOT USE THIS
+        # This method is implemented only for examples in junyper notebook
+        self.__game_mode = GamePhase.RESULTING
 
 # BEGIN --- ACTIONS
     def study(self):
@@ -221,6 +256,10 @@ class Game:
             self.__add_card_to_player(current_player.get_id())
         current_player._phase = PlayerPhase.DISCARDING
         self._log_action("Study")
+        try:
+            self.append_stage_data(("You" if current_player.get_id()==observe_id else "Opponent") + " drew 2 cards.")
+        except Exception as _:
+            pass
         return True
 
     def work(self):
@@ -231,16 +270,25 @@ class Game:
         self.__add_card_to_player(current_player.get_id())
         current_player._phase = PlayerPhase.PLAYING
         self._log_action("Work")
+        try:
+            self.append_stage_data(("You" if current_player.get_id()==observe_id else "Opponent") + " drew 1 card.")
+        except Exception as _:
+            pass
         return True
 
-    def solve_problem(self, problem_to_solve, cards_to_use, additional_info=None):
+    def solve_problem(self, problem_to_solve, cards_to_use, additional_info=None, game=None, reduce_from=None, copied_card=None):
         current_player = self.get_current_player()
         if current_player._phase.value != PlayerPhase.PLAYING.value:
             self.log_msg(1, "[x] You are trying to Solve problem while not in Playing phase. Currently in phase: " + str(current_player.get_phase()))
             return False
-        answer = self._solve_problem(current_player.get_id(), problem_to_solve, cards_to_use, additional_info)
+        backup_of_cards = deepcopy(cards_to_use)
+        answer = self._solve_problem(current_player.get_id(), problem_to_solve, cards_to_use, additional_info, game, reduce_from, copied_card)
         if answer:
-            self._log_action("Solve", (problem_to_solve, cards_to_use, additional_info))
+            self._log_action("Solve", (problem_to_solve, cards_to_use, (additional_info, reduce_from, copied_card)))
+            try:
+                self.append_stage_data(("You" if current_player.get_id()==observe_id else "Opponent") + " solved " + problem_to_solve.name + " using " + ", ".join([card.name for card in backup_of_cards])+".")
+            except Exception as _:
+                pass
         else:
             self.log_msg(1, "[x] Solving poblem failed. Maybe thouse cards aren't enough or the problem isn't opened yet?")
         return answer
@@ -250,9 +298,10 @@ class Game:
         if not (current_player.get_phase().value == PlayerPhase.PLAYING.value or current_player.get_phase().value == PlayerPhase.DISCARDING.value):
             self.log_msg(1, "[x] You are trying to Discards cards while not in Playing or Discarding phase. Currently in phase: " + str(current_player.get_phase()))
             return False
-        backup = current_player._cards
+        backup = current_player._cards[:]
         try:
-            for single_card in cards_to_discard:
+            cards_to_discard_backup = cards_to_discard[:] # Programmer: This isn't needed, right? Python: https://imgflip.com/s/meme/Batman-Slapping-Robin.jpg
+            for single_card in cards_to_discard_backup:
                 current_player._cards.remove(single_card)
         except Exception as e:
             self.log_msg(1, "[x] Discarding failed. Are you discarding only cards, that you didn't use yet? Info from exception: " + str(e))
@@ -260,6 +309,10 @@ class Game:
             return False
         self.__played_cards = self.__played_cards + cards_to_discard
         self._log_action("Discards", cards_to_discard)
+        try:
+            self.append_stage_data(("You" if current_player.get_id()==observe_id else "Opponent") + " discarded "+", ".join([card.name for card in cards_to_discard])+".")
+        except Exception as _:
+            pass
         return True
 
     def end_turn(self):
@@ -269,16 +322,21 @@ class Game:
             return False
         current_player._phase = PlayerPhase.ENDED
         self._log_action("EndTurn")
+        try:
+            self.append_stage_data(("You" if current_player.get_id()==observe_id else "Opponent") + " ended the turn.")
+        except Exception as _:
+            pass
         return True
 
 # END --- ACTIONS
 
 # BEGIN --- HELPER FUNCTIONS
 
+
 def is_problem_reducable_to(reduce_from, reduce_to):
     reduce_from_level = reduce_from.type[:]
     reduce_to_level = reduce_to.type[:]
-    levels = {"P":1, "NP":2, "PSCAPE":3, "EXPTIME":4}
+    levels = {"P":1, "NP":2, "PSPACE":3, "EXPTIME":4}
     return levels[reduce_from_level] >= levels[reduce_to_level]
 
 
@@ -297,7 +355,7 @@ def card_condition_fulfilled(card, other_cards):
     return found
 
 
-def calculate_power_of_solution(problem, cards, additional_info=None):
+def calculate_power_of_solution(problem, cards, additional_info=None, game=None, reduce_from=None, copied_card=None):
     current_power = 0
     for single_card in cards:
         other_cards = cards[:]
@@ -307,36 +365,46 @@ def calculate_power_of_solution(problem, cards, additional_info=None):
 
             if card_to_add_up.name == "Redukce":
                 try:
-                    (game, player_id, reduce_from) = additional_info.get("redukce", Exception) # todo: add documentation, test get at none
+                    player_id = None
+                    if additional_info is not None and len(additional_info) == 3: # backwards compatibility. Please don't use.
+                        (game, player_id, reduce_from) = additional_info
+                    if game is None or reduce_from is None:
+                        raise Exception("Game is None or reduce_from is None")
+                    if player_id is None:
+                        player_id = game.get_current_player().get_id()
                     if not reduce_from.opened:
                         continue
                     if reduce_from.solved_by.get(player_id, None) is None:
                         continue
                     if not is_problem_reducable_to(reduce_from, problem):
                         continue
-                    current_power += problem.best_solution
-                except Exception as _:
+                    current_power += reduce_from.best_solution
+                except Exception as e:
                     # game.log_msg(2, "[x] You've tried Calculating power of solution with cards including Redukce without suplying aditional information needed to use the card. This way you don't get the benefit from it, but you won't crash because of it.")
-                    print("[x] You've tried Calculating power of solution with cards including Redukce without suplying aditional information needed to use the card. This way you don't get the benefit from it, but you won't crash because of it.") # todo: do debug log
+                    if game is not None:
+                        game.log_msg(2, "[x] You've tried Calculating power of solution with cards including Redukce without suplying aditional information needed to use the card. This way you don't get the benefit from it, but you won't crash because of it." + str(e))
+                    #game.log_msg(2, "[x] You've tried Calculating power of solution with cards including Redukce without suplying aditional information needed to use the card. This way you don't get the benefit from it, but you won't crash because of it." + str(e))
 
             if card_to_add_up.name == "Meta-technika":
                 try:
-                    copied_card = additional_info # todo: add documentation
+                    if additional_info is not None and copied_card is None: # backwards compatibility. Please don't use.
+                        copied_card = additional_info
                     if copied_card is None:
                         continue
                     if copied_card not in cards:
                         continue
                     card_to_add_up = copied_card
                 except Exception as _:
-                    game.log_msg(2, "[x] You've tried Calculating power of solution with cards including Meta-technika without suplying aditional information needed to use the card or are copying invalid card. This way you don't get the benefit from it, but you won't crash because of it.")
+                    if game is not None:
+                        game.log_msg(2, "[x] You've tried Calculating power of solution with cards including Meta-technika without suplying aditional information needed to use the card or are copying invalid card. This way you don't get the benefit from it, but you won't crash because of it.")
 
             for single_technique_key, single_technique_val in card_to_add_up.techniques.items():
                 current_power += single_technique_val * problem.techniques.get(single_technique_key, 0)
     return current_power
 
 
-def are_cards_enough_to_solve(problem, cards, additional_info=None):
-    power_of_solution = calculate_power_of_solution(problem, cards, additional_info)
+def are_cards_enough_to_solve(problem, cards, additional_info=None, game=None, reduce_from=None, copied_card=None):
+    power_of_solution = calculate_power_of_solution(problem, cards, additional_info, game, reduce_from, copied_card)
     if problem.best_solution is None:
         return power_of_solution >= problem.difficulty
     else:
@@ -358,6 +426,9 @@ class Player:
     def get_name(self):
         return self._name
 
+    def set_name(self, name):
+        self._name = name
+
     def _get_my_cards(self):
         return self._cards
 
@@ -369,6 +440,21 @@ class Player:
 
     def game_tick(self, game):
         pass
+
+    def set_gui_observer(self):
+        try:
+            global observe_id
+            observe_id = self.get_id()
+        except Exception as _:
+            pass
+
+"""
+    def __repr__(self):
+        return "test1"
+
+    def __str__(self):
+        return "test2"
+"""
 
 
 class StrategyTemplate(Player):
