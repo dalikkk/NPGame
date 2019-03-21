@@ -17,7 +17,6 @@ class ParticipantsStrategy(StrategyTemplate):
                 else:
                     game.work()
             else:
-                print("Ideal play is none")
                 if len(self._get_my_cards()) >= 3:
                     game.work()
                 else:
@@ -123,23 +122,17 @@ class ParticipantsStrategy(StrategyTemplate):
                     for card in cards:
                         if card.name == "Meta-technika":
                             continue
-                        print("count_effectivity", problem, cards, game,
-                              problem_to_reduce, card)
                         res = self.count_effectivity\
                               (problem, cards, game=game,
                                reduce_from=problem_to_reduce,
                                copied_card=card)
-                        print("effectivity counted")
                         if res > best_res:
                             best_res = res
                             card_imitation = card
                     res = best_res
                 else:
-                    print("count_effectivity", problem, cards, game,
-                          problem_to_reduce)
                     res = self.count_effectivity(problem, cards, game,
                                                  reduce_from=problem_to_reduce)
-                    print("effectivity counted")
                 """
                 print("problem: ", problem)
                 print("cards: ", cards)
